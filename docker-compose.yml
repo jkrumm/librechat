@@ -1,13 +1,4 @@
 services:
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower
-    command:
-      - --cleanup=true
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-
   librechat-api:
     image: ghcr.io/danny-avila/librechat-dev-api:latest
     container_name: LibreChat-API
@@ -18,80 +9,78 @@ services:
       - librechat-meilisearch
       - librechat-rag-api
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - cloudflared
-      - librechat
     environment:
       - HOST=0.0.0.0
       - NODE_ENV=production
-      - MONGO_URI=mongodb://librechat-mongodb:27017/LibreChat
+      - ALLOW_REGISTRATION=false
+      - MONGO_URI=mongodb://librechat:librechat_mongo_password@librechat-mongodb:27017/LibreChat?authSource=admin
       - MEILI_HOST=http://librechat-meilisearch:7700
-      - MEILI_MASTER_KEY=${LIBRECHAT_MEILI_MASTER_KEY}
+      - MEILI_MASTER_KEY=librechat_meili_master_key
       - RAG_PORT=8000
       - RAG_API_URL=http://librechat-rag-api:8000
-      - JWT_SECRET=${LIBRECHAT_JWT_SECRET}
-      - JWT_REFRESH_SECRET=${LIBRECHAT_JWT_REFRESH_SECRET}
-      - UNIFIED_ENDPOINT_API_KEY=${UNIFIED_ENDPOINT_API_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - CREDS_KEY=${CREDS_KEY}
+      - CREDS_IV=${CREDS_IV}
     volumes:
-      - type: bind
-        source: ./.env
-        target: /app/.env
-      - type: bind
-        source: ./librechat.yml
-        target: /app/librechat.yaml
+      - ./.env:/app/.env
+      - ./librechat.yaml:/app/librechat.yaml
       - ./data/images:/app/client/public/images
       - ./data/uploads:/app/uploads
       - ./data/logs:/app/api/logs
-
-  librechat-mongodb:
-    container_name: chat-mongodb
-    image: mongo
-    restart: unless-stopped
-    volumes:
-      - /data/mongodb:/data/db
     networks:
       - librechat
-    command: mongod --noauth
+
+  librechat-mongodb:
+    container_name: LibreChat-MongoDB
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - ./data/mongodb:/data/db
+    networks:
+      - librechat
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=librechat
+      - MONGO_INITDB_ROOT_PASSWORD=librechat_mongo_password
+    command: mongod --auth
 
   librechat-meilisearch:
-    container_name: chat-meilisearch
+    container_name: LibreChat-Meilisearch
     image: getmeili/meilisearch:v1.12.3
     restart: unless-stopped
     environment:
       - MEILI_HOST=http://librechat-meilisearch:7700
       - MEILI_NO_ANALYTICS=true
-      - MEILI_MASTER_KEY=${LIBRECHAT_MEILI_MASTER_KEY}
+      - MEILI_MASTER_KEY=librechat_meili_master_key
     volumes:
-      - /mnt/hdd/librechat/meilisearch:/meili_data
+      - ./data/meilisearch:/meili_data
     networks:
       - librechat
 
   librechat-vectordb:
-    container_name: librechat-vectordb
+    container_name: LibreChat-VectorDB
     image: pgvector/pgvector:0.8.0-pg15-trixie
     environment:
-      POSTGRES_DB: librechat
-      POSTGRES_USER: librechat
-      POSTGRES_PASSWORD: librechat
+      - POSTGRES_DB=librechat
+      - POSTGRES_USER=librechat
+      - POSTGRES_PASSWORD=librechat_postgres_password
     restart: unless-stopped
     volumes:
-      - /data/vectordb:/var/lib/postgresql/data
+      - ./data/vectordb:/var/lib/postgresql/data
     networks:
       - librechat
 
   librechat-rag-api:
-    container_name: librechat-rag-api
+    container_name: LibreChat-RAG-API
     image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest
     environment:
       - DB_HOST=librechat-vectordb
       - RAG_PORT=8000
       - POSTGRES_DB=librechat
       - POSTGRES_USER=librechat
-      - POSTGRES_PASSWORD=librechat
+      - POSTGRES_PASSWORD=librechat_postgres_password
       - OPENAI_API_KEY=${UNIFIED_ENDPOINT_API_KEY}
-      - OPENAI_BASE_URL=https://unified-endpoint-main.app.iu-it.org/openai/v1/embeddings
+      - OPENAI_BASE_URL="${OPENAI_BASE_URL}/embeddings"
     restart: unless-stopped
     depends_on:
       - librechat-vectordb
