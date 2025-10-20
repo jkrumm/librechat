@@ -9,7 +9,10 @@ services:
       - librechat-meilisearch
       - librechat-rag-api
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
+      # Infrastructure settings (not in .env)
       - HOST=0.0.0.0
       - NODE_ENV=production
       - ALLOW_REGISTRATION=false
@@ -18,10 +21,6 @@ services:
       - MEILI_MASTER_KEY=librechat_meili_master_key
       - RAG_PORT=8000
       - RAG_API_URL=http://librechat-rag-api:8000
-      - JWT_SECRET=${JWT_SECRET}
-      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
-      - CREDS_KEY=${CREDS_KEY}
-      - CREDS_IV=${CREDS_IV}
     volumes:
       - ./.env:/app/.env
       - ./librechat.yaml:/app/librechat.yaml
@@ -80,7 +79,7 @@ services:
       - POSTGRES_USER=librechat
       - POSTGRES_PASSWORD=librechat_postgres_password
       - OPENAI_API_KEY=${UNIFIED_ENDPOINT_API_KEY}
-      - OPENAI_BASE_URL="${OPENAI_BASE_URL}/embeddings"
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}/embeddings
     restart: unless-stopped
     depends_on:
       - librechat-vectordb

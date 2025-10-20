@@ -15,8 +15,9 @@ NC='\033[0m' # No Color
 # Configuration
 ENV_FILE=".env"
 ENV_EXAMPLE_FILE=".env.example"
-CONFIG_FILE="librechat.yml"
+CONFIG_FILE="librechat.yaml"
 DATA_DIR="./data"
+FIRST_RUN=false
 
 # Print colored output
 print_status() {
@@ -72,7 +73,6 @@ setup_directories() {
     print_status "Setting up directories..."
 
     local dirs=(
-        "$DATA_DIR"
         "$DATA_DIR/mongodb"
         "$DATA_DIR/meilisearch"
         "$DATA_DIR/vectordb"
@@ -82,11 +82,10 @@ setup_directories() {
     )
 
     for dir in "${dirs[@]}"; do
-        if [ ! -d "$dir" ]; then
-            mkdir -p "$dir"
-            print_success "Created directory: $dir"
-        fi
+        mkdir -p "$dir"
     done
+
+    print_success "Data directories ready"
 }
 
 # Setup environment file
@@ -97,10 +96,13 @@ setup_env_file() {
         if [ -f "$ENV_EXAMPLE_FILE" ]; then
             cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"
             print_success "Created .env from .env.example"
+            FIRST_RUN=true
         else
             print_error ".env.example not found! Please create it first."
             exit 1
         fi
+    else
+        print_success "Environment file already exists"
     fi
 }
 
@@ -117,10 +119,10 @@ get_env_vars_from_docker_compose() {
         sort -u
 }
 
-# Extract ${} variables from librechat.yml
+# Extract ${} variables from librechat.yaml
 get_env_vars_from_librechat() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        return 0  # Not an error if librechat.yml doesn't exist yet
+        return 0  # Not an error if librechat.yaml doesn't exist yet
     fi
 
     # Extract ${VAR} and ${VAR:-default} patterns, remove duplicates
@@ -181,11 +183,11 @@ generate_secrets() {
     fi
 }
 
-# Validate environment variables dynamically from docker-compose.yml and librechat.yml
+# Validate environment variables dynamically from docker-compose.yml and librechat.yaml
 validate_env() {
     print_status "Scanning configuration files for required environment variables..."
 
-    # Get all required variables from docker-compose.yml and librechat.yml
+    # Get all required variables from docker-compose.yml and librechat.yaml
     local all_required_vars
     all_required_vars=$(get_all_required_env_vars)
 
@@ -287,7 +289,7 @@ validate_env() {
             for var in "${still_missing[@]}"; do
                 echo "  - $var"
             done
-            echo "You can set them later by editing .env file or by adding them to librechat.yml"
+            echo "You can set them later by editing .env file or by adding them to librechat.yaml"
         fi
     else
         if [ -n "$user_configurable_vars" ]; then
@@ -318,72 +320,79 @@ validate_env() {
     fi
 }
 
-# Validate librechat.yml configuration exists
+# Validate librechat.yaml configuration exists
 validate_config() {
     print_status "Validating LibreChat configuration..."
 
     if [ ! -f "$CONFIG_FILE" ]; then
-        print_error "librechat.yml not found! This file should be in your repository."
-        print_error "Please ensure librechat.yml exists in your project root."
+        print_error "librechat.yaml not found! This file should be in your repository."
+        print_error "Please ensure librechat.yaml exists in your project root."
         exit 1
     else
-        print_success "librechat.yml found"
+        print_success "librechat.yaml found"
     fi
 }
 
-# Check if user exists in database
-check_user_exists() {
-    print_status "Checking if users exist in database..."
+# Create initial admin user
+create_initial_user() {
+    print_status "Creating initial admin user..."
+    echo
+    echo "Please provide details for the first admin user:"
+    echo
 
-    # Wait for services to be ready
-    local max_attempts=30
+    read -p "Email: " email
+    read -p "Name (default: ${email%%@*}): " name
+    name=${name:-${email%%@*}}
+    read -p "Username (default: ${email%%@*}): " username
+    username=${username:-${email%%@*}}
+    read -s -p "Password: " password
+    echo
+    echo
+
+    if [ -z "$email" ] || [ -z "$password" ]; then
+        print_error "Email and password are required"
+        return 1
+    fi
+
+    # Wait for API to be ready
+    print_status "Waiting for LibreChat API to be ready..."
+    local max_attempts=20
     local attempt=0
 
     while [ $attempt -lt $max_attempts ]; do
-        if docker exec LibreChat-API node -e "
-            const mongoose = require('mongoose');
-            mongoose.connect(process.env.MONGO_URI || 'mongodb://librechat-mongodb:27017/LibreChat')
-                .then(() => {
-                    const User = require('./api/models/User');
-                    return User.countDocuments();
-                })
-                .then(count => {
-                    console.log('USER_COUNT:' + count);
-                    process.exit(0);
-                })
-                .catch(err => {
-                    console.error('Database connection failed:', err.message);
-                    process.exit(1);
-                });
-        " 2>/dev/null; then
+        if docker exec LibreChat-API test -f /app/config/create-user.js 2>/dev/null; then
             break
         fi
-
         attempt=$((attempt + 1))
-        if [ $attempt -eq $max_attempts ]; then
-            print_warning "Could not check user count - database may not be ready"
-            return 1
-        fi
-
-        print_status "Waiting for database to be ready... ($attempt/$max_attempts)"
         sleep 2
     done
 
-    return 0
-}
+    if [ $attempt -eq $max_attempts ]; then
+        print_error "LibreChat API did not become ready in time"
+        return 1
+    fi
 
-# Create admin user
-create_user() {
-    print_status "Creating admin user..."
-
-    echo "Please create an admin user for LibreChat:"
-    docker exec -it LibreChat-API npm run create-user
-
-    if [ $? -eq 0 ]; then
-        print_success "User created successfully"
+    # Create the user
+    print_status "Creating user account..."
+    if docker exec LibreChat-API node /app/config/create-user.js "$email" "$name" "$username" "$password" --email-verified=true 2>&1 | grep -q "User created successfully"; then
+        echo
+        print_success "Admin user created successfully!"
+        print_success "Email: $email"
+        print_success "Username: $username"
+        echo
+        return 0
     else
         print_error "Failed to create user"
         return 1
+    fi
+}
+
+# Determine docker compose command
+get_compose_cmd() {
+    if docker compose version &> /dev/null; then
+        echo "docker compose"
+    else
+        echo "docker-compose"
     fi
 }
 
@@ -391,28 +400,20 @@ create_user() {
 start_services() {
     print_status "Starting LibreChat services..."
 
-    # Use docker compose or docker-compose based on availability
-    if docker compose version &> /dev/null; then
-        COMPOSE_CMD="docker compose"
-    else
-        COMPOSE_CMD="docker-compose"
-    fi
+    local compose_cmd=$(get_compose_cmd)
 
     # Pull latest images
     print_status "Pulling latest images..."
-    $COMPOSE_CMD pull
+    $compose_cmd pull
 
     # Start services
     print_status "Starting containers..."
-    $COMPOSE_CMD up -d
+    $compose_cmd up -d
 
     if [ $? -eq 0 ]; then
         print_success "Services started successfully"
-
-        # Wait a bit for services to initialize
         print_status "Waiting for services to initialize..."
         sleep 10
-
         return 0
     else
         print_error "Failed to start services"
@@ -420,20 +421,16 @@ start_services() {
     fi
 }
 
-# Restart API service to reload config
+# Restart API service
 restart_api() {
-    print_status "Restarting LibreChat API to reload configuration..."
+    print_status "Restarting LibreChat API..."
+    local compose_cmd=$(get_compose_cmd)
 
-    if docker compose version &> /dev/null; then
-        COMPOSE_CMD="docker compose"
-    else
-        COMPOSE_CMD="docker-compose"
-    fi
-
-    $COMPOSE_CMD restart librechat-api
+    $compose_cmd restart librechat-api
 
     if [ $? -eq 0 ]; then
         print_success "LibreChat API restarted successfully"
+        return 0
     else
         print_error "Failed to restart LibreChat API"
         return 1
@@ -442,17 +439,23 @@ restart_api() {
 
 # Show status and connection info
 show_status() {
-    print_success "LibreChat setup completed!"
+    local compose_cmd=$(get_compose_cmd)
+
+    echo
+    print_success "LibreChat is ready!"
     echo
     print_status "Service Information:"
-    echo "  " LibreChat URL: http://localhost:3080"
-    echo "  " Data Directory: $DATA_DIR"
-    echo "  " Environment File: $ENV_FILE"
-    echo "  " Configuration File: $CONFIG_FILE"
+    echo "  🌐 LibreChat URL: http://localhost:3080"
+    echo "  📁 Data Directory: $DATA_DIR"
+    echo "  ⚙️  Environment: $ENV_FILE"
+    echo "  📝 Configuration: $CONFIG_FILE"
     echo
-    print_status "To view logs: docker logs LibreChat-API -f"
-    print_status "To stop services: docker-compose down"
-    print_status "To restart services: docker-compose restart"
+    print_status "Useful Commands:"
+    echo "  View logs:      docker logs LibreChat-API -f"
+    echo "  Stop services:  $compose_cmd down"
+    echo "  Restart:        $compose_cmd restart"
+    echo "  Create user:    docker exec LibreChat-API node /app/config/create-user.js"
+    echo
 }
 
 # Main execution
@@ -470,46 +473,22 @@ main() {
     validate_config
 
     if start_services; then
-        # Check if we need to create users
-        sleep 5  # Give services time to start
-
-        if ! check_user_exists; then
-            print_warning "Could not verify user existence"
+        # Only prompt for user creation on first run
+        if [ "$FIRST_RUN" = true ]; then
+            echo
+            print_status "🎉 First time setup detected!"
+            echo
             echo -n "Would you like to create an admin user now? (y/n): "
             read -r create_user_choice
+
             if [[ $create_user_choice =~ ^[Yy]$ ]]; then
-                create_user
-            fi
-        else
-            # Parse user count from the output
-            user_count_output=$(docker exec LibreChat-API node -e "
-                const mongoose = require('mongoose');
-                mongoose.connect(process.env.MONGO_URI || 'mongodb://librechat-mongodb:27017/LibreChat')
-                    .then(() => {
-                        const User = require('./api/models/User');
-                        return User.countDocuments();
-                    })
-                    .then(count => {
-                        console.log('USER_COUNT:' + count);
-                        process.exit(0);
-                    })
-                    .catch(err => {
-                        console.log('USER_COUNT:0');
-                        process.exit(1);
-                    });
-            " 2>/dev/null)
-
-            user_count=$(echo "$user_count_output" | grep "USER_COUNT:" | cut -d: -f2)
-
-            if [ "$user_count" -eq 0 ]; then
-                print_warning "No users found in database"
-                echo -n "Would you like to create an admin user now? (y/n): "
-                read -r create_user_choice
-                if [[ $create_user_choice =~ ^[Yy]$ ]]; then
-                    create_user
-                fi
+                create_initial_user
             else
-                print_success "Found $user_count user(s) in database"
+                echo
+                print_warning "Skipping user creation."
+                print_status "You can create a user later with:"
+                echo "  docker exec LibreChat-API node /app/config/create-user.js"
+                echo
             fi
         fi
 

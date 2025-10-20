@@ -7,7 +7,7 @@ endpoints:
     - name: "OpenAI"
       iconURL: "openAI"
       apiKey: "${UNIFIED_ENDPOINT_API_KEY}"
-      baseURL: "https://unified-endpoint-main.app.iu-it.org/openai/v1"
+      baseURL: "${OPENAI_BASE_URL}"
       models:
         default: [
           "gpt-5-2025-08-07",

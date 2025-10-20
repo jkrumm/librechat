@@ -51,7 +51,7 @@ flowchart TD
 - ✅ **Generates security keys** - JWT tokens, encryption keys (64-character secure random)
 - ✅ **Validates configuration** - Ensures all required variables are set
 - ✅ **Starts services** - Docker containers with proper dependencies
-- ✅ **Creates admin user** - Prompts you to set up your first account
+- ✅ **Creates admin user** - On first run, prompts you to set up your account
 
 ### Smart Detection
 - 🔍 **Scans your config files** - Finds all `${VARIABLE}` references automatically
@@ -147,9 +147,10 @@ chmod +x run.bash
 ### Getting Help
 
 - **View logs**: `docker logs LibreChat-API -f`
-- **Stop services**: `docker-compose down`
-- **Restart services**: `docker-compose restart`
-- **Reset everything**: Delete `./data/` folder and run `./run.bash` again
+- **Stop services**: `docker compose down` (or `docker-compose down`)
+- **Restart services**: `docker compose restart`
+- **Create additional user**: `docker exec LibreChat-API node /app/config/create-user.js`
+- **Reset everything**: Delete `./data/` folder and `.env` file, then run `./run.bash` again
 
 ## 🎯 Why This Approach?
 
