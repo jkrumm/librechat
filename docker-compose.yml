@@ -1,0 +1,103 @@
+services:
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    command:
+      - --cleanup=true
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  librechat-api:
+    image: ghcr.io/danny-avila/librechat-dev-api:latest
+    container_name: LibreChat-API
+    ports:
+      - "3080:3080"
+    depends_on:
+      - librechat-mongodb
+      - librechat-meilisearch
+      - librechat-rag-api
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - cloudflared
+      - librechat
+    environment:
+      - HOST=0.0.0.0
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://librechat-mongodb:27017/LibreChat
+      - MEILI_HOST=http://librechat-meilisearch:7700
+      - MEILI_MASTER_KEY=${LIBRECHAT_MEILI_MASTER_KEY}
+      - RAG_PORT=8000
+      - RAG_API_URL=http://librechat-rag-api:8000
+      - JWT_SECRET=${LIBRECHAT_JWT_SECRET}
+      - JWT_REFRESH_SECRET=${LIBRECHAT_JWT_REFRESH_SECRET}
+      - UNIFIED_ENDPOINT_API_KEY=${UNIFIED_ENDPOINT_API_KEY}
+    volumes:
+      - type: bind
+        source: ./.env
+        target: /app/.env
+      - type: bind
+        source: ./librechat.yml
+        target: /app/librechat.yaml
+      - ./data/images:/app/client/public/images
+      - ./data/uploads:/app/uploads
+      - ./data/logs:/app/api/logs
+
+  librechat-mongodb:
+    container_name: chat-mongodb
+    image: mongo
+    restart: unless-stopped
+    volumes:
+      - /data/mongodb:/data/db
+    networks:
+      - librechat
+    command: mongod --noauth
+
+  librechat-meilisearch:
+    container_name: chat-meilisearch
+    image: getmeili/meilisearch:v1.12.3
+    restart: unless-stopped
+    environment:
+      - MEILI_HOST=http://librechat-meilisearch:7700
+      - MEILI_NO_ANALYTICS=true
+      - MEILI_MASTER_KEY=${LIBRECHAT_MEILI_MASTER_KEY}
+    volumes:
+      - /mnt/hdd/librechat/meilisearch:/meili_data
+    networks:
+      - librechat
+
+  librechat-vectordb:
+    container_name: librechat-vectordb
+    image: pgvector/pgvector:0.8.0-pg15-trixie
+    environment:
+      POSTGRES_DB: librechat
+      POSTGRES_USER: librechat
+      POSTGRES_PASSWORD: librechat
+    restart: unless-stopped
+    volumes:
+      - /data/vectordb:/var/lib/postgresql/data
+    networks:
+      - librechat
+
+  librechat-rag-api:
+    container_name: librechat-rag-api
+    image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest
+    environment:
+      - DB_HOST=librechat-vectordb
+      - RAG_PORT=8000
+      - POSTGRES_DB=librechat
+      - POSTGRES_USER=librechat
+      - POSTGRES_PASSWORD=librechat
+      - OPENAI_API_KEY=${UNIFIED_ENDPOINT_API_KEY}
+      - OPENAI_BASE_URL=https://unified-endpoint-main.app.iu-it.org/openai/v1/embeddings
+    restart: unless-stopped
+    depends_on:
+      - librechat-vectordb
+    networks:
+      - librechat
+
+networks:
+  librechat:
+    driver: bridge

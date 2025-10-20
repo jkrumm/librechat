@@ -1,0 +1,56 @@
+version: 1.3.0
+
+cache: true
+
+endpoints:
+  custom:
+    #- name: "Anthropic"
+    #  iconURL: "anthropic"
+    #  apiKey: "${UNIFIED_ENDPOINT_API_KEY}"
+    #  baseURL: "https://unified-endpoint-main.app.iu-it.org/anthropic"
+    #  models:
+    #    default: [
+    #      "claude-sonnet-4-20250514",
+    #      "claude-sonnet-4-5",
+    #      "claude-3-5-sonnet-20241022"
+    #    ]
+    #    fetch: false
+    #  customParams:
+    #    defaultParamsEndpoint: 'anthropic'
+    #  titleConvo: true
+    # #  titleMethod: "completion"
+    #  userIdQuery: false
+    #  titleModel: "claude-3-5-sonnet-20241022"
+    #  summarize: false
+    #  summaryModel: "claude-3-5-sonnet-20241022"
+    #  forcePrompt: false
+    #  modelDisplayLabel: "Claude"
+    - name: "OpenAI"
+      iconURL: "openAI"
+      apiKey: "${UNIFIED_ENDPOINT_API_KEY}"
+      baseURL: "https://unified-endpoint-main.app.iu-it.org/openai/v1"
+      models:
+        default: [
+          "gpt-5-2025-08-07",
+        ]
+        fetch: false
+      titleConvo: true
+      titleMethod: "completion"
+      userIdQuery: false
+      titleModel: "gpt-5-nano-2025-08-07"
+      summarize: false
+      summaryModel: "gpt-5-mini-2025-08-07"
+      forcePrompt: false
+      modelDisplayLabel: "GPT-5"
+
+#mcpServers:
+#  mcphub:
+#    type: streamable-http
+#    url: https://mcp.jkrumm.com/mcp
+#    requiresOAuth: false
+#    headers:
+#      X-User-ID: "{{LIBRECHAT_USER_ID}}"
+#      Authorization: "Bearer ${MCPHUB_API_TOKEN}"
+#    initTimeout: 15000    # 15 seconds for server initialization
+#    timeout: 60000        # 60 seconds for tool operations
+#    serverInstructions: true
